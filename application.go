@@ -20,6 +20,11 @@ var (
 	ErrAppInitialized = errors.New("Application already initialized")
 )
 
+type gracefulChannelShutdown struct {
+	name string
+	ch   chan chan error
+}
+
 type application struct {
 	name, version         string
 	defaultLoggingFields  log.Fields
@@ -28,7 +33,7 @@ type application struct {
 	internalConfig        *BaseAppConfig
 	log                   *log.Entry
 	shutdownChannelsMutex sync.Mutex
-	shutdownChannels      []chan struct{}
+	shutdownChannels      []*gracefulChannelShutdown
 	shutdown              chan os.Signal
 	services              []GracefulService
 	servicesMutex         sync.Mutex
@@ -93,7 +98,7 @@ func initApp(appConfig *ApplicationInitConfig) error {
 		internalConfig:       internalConfig,
 		log:                  logEntry,
 		shutdownChannelsMutex: sync.Mutex{},
-		shutdownChannels:      make([]chan struct{}, 0),
+		shutdownChannels:      make([]*gracefulChannelShutdown, 0),
 		shutdown:              make(chan os.Signal),
 		services:              make([]GracefulService, 0),
 		stopped:               false,
@@ -148,10 +153,15 @@ func WaitShutdown() <-chan os.Signal {
 //ShutdownSignalReceived is used to get notified when an os terminate signal is received
 //by the application to clean up resources before exiting
 //each channel call will block with a timeout
-func ShutdownSignalReceived(shutdown chan struct{}) {
+func ShutdownSignalReceived(shutdown chan chan error, identifier string) {
 	app.shutdownChannelsMutex.Lock()
 	defer app.shutdownChannelsMutex.Unlock()
-	app.shutdownChannels = append(app.shutdownChannels, shutdown)
+	adhocShutdown := &gracefulChannelShutdown{
+		name: identifier, //TODO: name,
+		ch:   shutdown,
+	}
+
+	app.shutdownChannels = append(app.shutdownChannels, adhocShutdown)
 }
 
 //LogObject adds the fields of an object to the log entry, e.g.
@@ -228,19 +238,14 @@ func iterateObjectFields(v reflect.Value, path string) ([]string, []interface{})
 	return paths, values
 }
 
-type gracefulChannelShutdown struct {
-	name string
-	ch   chan struct{}
-}
-
 func (g *gracefulChannelShutdown) String() string {
 	return g.name
 }
 
 func (g *gracefulChannelShutdown) Shutdown() error {
-	g.ch <- struct{}{}
-	//TODO: return some error
-	return nil
+	err := make(chan error)
+	g.ch <- err
+	return <-err
 }
 
 func handleGracefulShutdown() {
@@ -260,11 +265,8 @@ func handleGracefulShutdown() {
 		shutdownChannels := app.shutdownChannels[:]
 		app.shutdownChannelsMutex.Unlock()
 
-		for _, ch := range shutdownChannels {
-			services = append(services, &gracefulChannelShutdown{
-				name: "adhoc-shutdown", //TODO: name,
-				ch:   ch,
-			})
+		for _, adhocService := range shutdownChannels {
+			services = append(services, adhocService)
 		}
 
 		if len(services) == 0 {
