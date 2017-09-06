@@ -93,7 +93,7 @@ func initApp(appConfig *ApplicationInitConfig) error {
 		internalConfig:       internalConfig,
 		log:                  logEntry,
 		shutdownChannelsMutex: sync.Mutex{},
-		shutdownChannels:      make([]chan os.Signal, 0),
+		shutdownChannels:      make([]chan struct{}, 0),
 		shutdown:              make(chan os.Signal),
 		services:              make([]GracefulService, 0),
 		stopped:               false,
@@ -273,10 +273,10 @@ func handleGracefulShutdown() {
 			return
 		}
 
-		Log().Infof("Stopping a total of %d services: %s", len(app.services), app.services)
+		Log().Infof("Stopping a total of %d services: %s", len(services), services)
 
 		var wg sync.WaitGroup
-		for _, s := range app.services {
+		for _, s := range services {
 			wg.Add(1)
 			go func(s GracefulService) {
 				app.log.Infof("Stopping service %s", s)
