@@ -2,7 +2,10 @@ package app
 
 import (
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
+	"time"
 
 	"reflect"
 
@@ -18,16 +21,18 @@ var (
 )
 
 type application struct {
-	name, version        string
-	defaultLoggingFields log.Fields
-	config               interface{}
-	initConfig           *ApplicationInitConfig
-	internalConfig       *BaseAppConfig
-	log                  *log.Entry
-	shutdown             chan os.Signal
-	services             []GracefulService
-	servicesMutex        sync.Mutex
-	stopped              bool
+	name, version         string
+	defaultLoggingFields  log.Fields
+	config                interface{}
+	initConfig            *ApplicationInitConfig
+	internalConfig        *BaseAppConfig
+	log                   *log.Entry
+	shutdownChannelsMutex sync.Mutex
+	shutdownChannels      []chan struct{}
+	shutdown              chan os.Signal
+	services              []GracefulService
+	servicesMutex         sync.Mutex
+	stopped               bool
 }
 
 //ApplicationInitConfig is the default application config
@@ -87,9 +92,11 @@ func initApp(appConfig *ApplicationInitConfig) error {
 		config:               appConfig.Config,
 		internalConfig:       internalConfig,
 		log:                  logEntry,
-		shutdown:             make(chan os.Signal),
-		services:             make([]GracefulService, 0),
-		stopped:              false,
+		shutdownChannelsMutex: sync.Mutex{},
+		shutdownChannels:      make([]chan os.Signal, 0),
+		shutdown:              make(chan os.Signal),
+		services:              make([]GracefulService, 0),
+		stopped:               false,
 	}
 
 	return nil
@@ -136,6 +143,15 @@ func Stopped() bool {
 //WaitShutdown waits for the application to receive a shutdown signal and stop all services
 func WaitShutdown() <-chan os.Signal {
 	return app.shutdown
+}
+
+//ShutdownSignalReceived is used to get notified when an os terminate signal is received
+//by the application to clean up resources before exiting
+//each channel call will block with a timeout
+func ShutdownSignalReceived(shutdown chan struct{}) {
+	app.shutdownChannelsMutex.Lock()
+	defer app.shutdownChannelsMutex.Unlock()
+	app.shutdownChannels = append(app.shutdownChannels, shutdown)
 }
 
 //LogObject adds the fields of an object to the log entry, e.g.
@@ -210,4 +226,85 @@ func iterateObjectFields(v reflect.Value, path string) ([]string, []interface{})
 	}
 
 	return paths, values
+}
+
+type gracefulChannelShutdown struct {
+	name string
+	ch   chan struct{}
+}
+
+func (g *gracefulChannelShutdown) String() string {
+	return g.name
+}
+
+func (g *gracefulChannelShutdown) Shutdown() error {
+	g.ch <- struct{}{}
+	//TODO: return some error
+	return nil
+}
+
+func handleGracefulShutdown() {
+	shutdownCh := make(chan os.Signal)
+	signal.Notify(shutdownCh, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		shutdownSignal := <-shutdownCh
+		app.stopped = true
+		Log().Infof("Received graceful shutdown message %s", shutdownSignal)
+
+		app.servicesMutex.Lock()
+		services := app.services[:]
+		app.servicesMutex.Unlock()
+
+		app.shutdownChannelsMutex.Lock()
+		shutdownChannels := app.shutdownChannels[:]
+		app.shutdownChannelsMutex.Unlock()
+
+		for _, ch := range shutdownChannels {
+			services = append(services, &gracefulChannelShutdown{
+				name: "adhoc-shutdown", //TODO: name,
+				ch:   ch,
+			})
+		}
+
+		if len(services) == 0 {
+			Log().Infof("No services to stop, exiting.")
+			app.shutdown <- shutdownSignal
+			return
+		}
+
+		Log().Infof("Stopping a total of %d services: %s", len(app.services), app.services)
+
+		var wg sync.WaitGroup
+		for _, s := range app.services {
+			wg.Add(1)
+			go func(s GracefulService) {
+				app.log.Infof("Stopping service %s", s)
+				defer wg.Done()
+
+				complete := make(chan struct{})
+				go func(s GracefulService, complete chan struct{}) {
+					err := s.Shutdown()
+					if err != nil {
+						app.log.Errorf("Error during graceful shutdown %s", err)
+					}
+
+					complete <- struct{}{}
+				}(s, complete)
+
+				t := time.NewTimer(gracefulTimeout)
+
+				select {
+				case <-complete:
+					app.log.Infof("Stopped service %s", s)
+				case <-t.C:
+					app.log.Infof("A service did not shutdown gracefully in the %d timeout, skiping", gracefulTimeout)
+				}
+			}(s)
+		}
+
+		wg.Wait()
+
+		app.shutdown <- shutdownSignal
+	}()
 }
