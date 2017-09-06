@@ -1,0 +1,22 @@
+hash: a09579ec172dccc08a3ce1f6dadb1a50f6f293a4935df3c20cceeca50f7d55b1
+updated: 2017-09-06T12:38:42.203040465+03:00
+imports:
+- name: github.com/cenkalti/backoff
+  version: 61153c768f31ee5f130071d08fc82b85208528de
+- name: github.com/go-errors/errors
+  version: 8fa88b06e5974e97fbf9899a7f86a344bfd1f105
+- name: github.com/kelseyhightower/envconfig
+  version: 9aca109c9aec4633fced9717c4a09ecab3d33111
+- name: github.com/Sirupsen/logrus
+  version: a437dfd2463eaedbec3dfe443e477d3b0a810b3f
+- name: github.com/streadway/amqp
+  version: 280af9972814b39f3b45c9546a63535a32a1f44d
+- name: golang.org/x/net
+  version: 66aacef3dd8a676686c7ae3716979581e8b03c47
+  subpackages:
+  - context
+- name: golang.org/x/sys
+  version: 9aade4d3a3b7e6d876cd3823ad20ec45fc035402
+  subpackages:
+  - unix
+testImports: []
