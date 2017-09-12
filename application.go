@@ -25,7 +25,7 @@ type gracefulChannelShutdown struct {
 	ch   chan chan error
 }
 
-type application struct {
+type Application struct {
 	name, version         string
 	defaultLoggingFields  log.Fields
 	config                interface{}
@@ -47,18 +47,22 @@ type ApplicationInitConfig struct {
 	Config               interface{}
 }
 
-var app *application
+var app *Application
 
 //Init initializes the application, then the package methods can be used
-func Init(appConfig *ApplicationInitConfig) error {
+func Init(appConfig *ApplicationInitConfig) (*Application, error) {
 	err := initApp(appConfig)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	handleGracefulShutdown()
 
-	return nil
+	return app, nil
+}
+
+func Set(newApp *Application) {
+	app = newApp
 }
 
 func getVersion(c *ApplicationInitConfig) string {
