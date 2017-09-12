@@ -93,7 +93,7 @@ func initApp(appConfig *ApplicationInitConfig) error {
 		return err
 	}
 
-	app = &application{
+	app = &Application{
 		name:                 appConfig.Name,
 		version:              version,
 		defaultLoggingFields: appConfig.DefaultLoggingFields,
