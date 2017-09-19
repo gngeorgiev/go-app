@@ -31,6 +31,7 @@ type Application struct {
 	config                interface{}
 	initConfig            *ApplicationInitConfig
 	internalConfig        *BaseAppConfig
+	logMutex              sync.Mutex
 	log                   *log.Entry
 	shutdownChannelsMutex sync.Mutex
 	shutdownChannels      []*gracefulChannelShutdown
@@ -100,6 +101,7 @@ func initApp(appConfig *ApplicationInitConfig) error {
 		initConfig:           appConfig,
 		config:               appConfig.Config,
 		internalConfig:       internalConfig,
+		logMutex:             sync.Mutex{},
 		log:                  logEntry,
 		shutdownChannelsMutex: sync.Mutex{},
 		shutdownChannels:      make([]*gracefulChannelShutdown, 0),
@@ -131,7 +133,9 @@ func Log() *log.Entry {
 	var entry *log.Entry
 
 	if app != nil {
+		app.logMutex.Lock()
 		entry = app.log
+		defer app.logMutex.Unlock()
 	} else {
 		entry = log.NewEntry(log.StandardLogger())
 	}
