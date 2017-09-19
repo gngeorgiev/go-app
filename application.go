@@ -133,15 +133,15 @@ func Log() *log.Entry {
 	var entry *log.Entry
 
 	if app != nil {
-		app.logMutex.Lock()
 		entry = app.log
-		defer app.logMutex.Unlock()
 	} else {
 		entry = log.NewEntry(log.StandardLogger())
 	}
 
-	entry.Level = entry.Logger.Level
-	return entry
+	return &log.Entry{
+		Logger: entry.Logger,
+		Data:   entry.Data,
+	}
 }
 
 //Stopped returns whether the application is in a stopped state
