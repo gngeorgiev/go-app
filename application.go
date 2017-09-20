@@ -38,6 +38,7 @@ type Application struct {
 	shutdown              chan os.Signal
 	services              []GracefulService
 	servicesMutex         sync.Mutex
+	stoppedMutex          sync.Mutex
 	stopped               bool
 }
 
@@ -107,6 +108,7 @@ func initApp(appConfig *ApplicationInitConfig) error {
 		shutdownChannels:      make([]*gracefulChannelShutdown, 0),
 		shutdown:              make(chan os.Signal),
 		services:              make([]GracefulService, 0),
+		stoppedMutex:          sync.Mutex{},
 		stopped:               false,
 	}
 
@@ -150,6 +152,8 @@ func Stopped() bool {
 		return false
 	}
 
+	app.stoppedMutex.Lock()
+	defer app.stoppedMutex.Unlock()
 	return app.stopped
 }
 
@@ -262,7 +266,9 @@ func handleGracefulShutdown() {
 
 	go func() {
 		shutdownSignal := <-shutdownCh
+		app.stoppedMutex.Lock()
 		app.stopped = true
+		app.stoppedMutex.Unlock()
 		Log().Infof("Received graceful shutdown message %s", shutdownSignal)
 
 		app.servicesMutex.Lock()
