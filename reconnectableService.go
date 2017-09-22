@@ -1,8 +1,10 @@
 package app
 
 import (
-	"sync"
+	"sync/atomic"
 	"time"
+
+	"sync"
 
 	"github.com/cenkalti/backoff"
 	"github.com/go-errors/errors"
@@ -16,8 +18,8 @@ type ReconnectableService struct {
 
 	backoff   backoff.BackOff
 	name      string
-	connected bool
-	stopped   bool
+	connected int32
+	stopped   int32
 	timeout   time.Duration
 
 	connectFunc func() error
@@ -27,10 +29,12 @@ type ReconnectableService struct {
 //NewReconnectableService creates a new reconnectable service with a specified backoff and timeout
 func NewReconnectableService(name string, b backoff.BackOff, timeout time.Duration) *ReconnectableService {
 	return &ReconnectableService{
-		mu:      sync.Mutex{},
-		backoff: b,
-		name:    name,
-		timeout: timeout,
+		mu:        sync.Mutex{},
+		backoff:   b,
+		name:      name,
+		timeout:   timeout,
+		connected: 0,
+		stopped:   0,
 	}
 }
 
@@ -50,19 +54,17 @@ func (r *ReconnectableService) Connect(f func() error) error {
 //ConnectNotify connects a specific service and notifies on each error
 func (r *ReconnectableService) ConnectNotify(f func() error, notify func(err error, d time.Duration)) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.stopped = false
 	r.connectFunc = f
 	r.notifyFunc = notify
+	r.mu.Unlock()
+	atomic.StoreInt32(&r.stopped, 0)
 
 	tries := 0
 	err := backoff.RetryNotify(func() error {
-		r.mu.Lock()
-		if r.stopped || Stopped() {
+		stopped := atomic.LoadInt32(&r.stopped) == 1
+		if stopped || Stopped() {
 			return nil
 		}
-		r.mu.Unlock()
 
 		connectChan := make(chan error)
 
@@ -92,23 +94,19 @@ func (r *ReconnectableService) ConnectNotify(f func() error, notify func(err err
 	}
 
 	Log().Infof("Successfully connected service %s", r.name)
-	r.connected = true
+	atomic.StoreInt32(&r.connected, 1)
 	return nil
 }
 
 //Reconnect reconnects the service with the supplied func in Connect
 func (r *ReconnectableService) Reconnect() error {
-	r.mu.Lock()
-	r.connected = false
-	r.mu.Unlock()
+	atomic.StoreInt32(&r.connected, 0)
 	return r.ConnectNotify(r.connectFunc, r.notifyFunc)
 }
 
 //IsConnected returns whether the service is connected
 func (r *ReconnectableService) IsConnected() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.connected
+	return atomic.LoadInt32(&r.connected) == 1
 }
 
 //Name returns the service name
@@ -120,8 +118,6 @@ func (r *ReconnectableService) Name() string {
 
 //Stop stops the service reconnection
 func (r *ReconnectableService) Stop() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	Log().Infof("Stopping %s reconnection", r.Name())
-	r.stopped = true
+	atomic.StoreInt32(&r.stopped, 1)
 }
