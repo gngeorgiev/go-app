@@ -1,6 +1,7 @@
 package app
 
 import (
+	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff"
@@ -11,6 +12,8 @@ import (
 //employing backoff strategy. The reconnectable service methods are not thread safe,
 //they shouldn't be called from multiple goroutines.
 type ReconnectableService struct {
+	mu sync.Mutex
+
 	backoff   backoff.BackOff
 	name      string
 	connected bool
@@ -24,6 +27,7 @@ type ReconnectableService struct {
 //NewReconnectableService creates a new reconnectable service with a specified backoff and timeout
 func NewReconnectableService(name string, b backoff.BackOff, timeout time.Duration) *ReconnectableService {
 	return &ReconnectableService{
+		mu:      sync.Mutex{},
 		backoff: b,
 		name:    name,
 		timeout: timeout,
@@ -45,18 +49,20 @@ func (r *ReconnectableService) Connect(f func() error) error {
 
 //ConnectNotify connects a specific service and notifies on each error
 func (r *ReconnectableService) ConnectNotify(f func() error, notify func(err error, d time.Duration)) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	r.stopped = false
 	r.connectFunc = f
 	r.notifyFunc = notify
 
 	tries := 0
 	err := backoff.RetryNotify(func() error {
+		r.mu.Lock()
 		if r.stopped || Stopped() {
 			return nil
 		}
-
-		timer := time.NewTimer(r.timeout)
-		defer timer.Stop()
+		r.mu.Unlock()
 
 		connectChan := make(chan error)
 
@@ -65,7 +71,7 @@ func (r *ReconnectableService) ConnectNotify(f func() error, notify func(err err
 		}()
 
 		select {
-		case <-timer.C:
+		case <-time.After(r.timeout):
 			return errors.New("Timeout")
 		case err := <-connectChan:
 			return err
@@ -92,22 +98,30 @@ func (r *ReconnectableService) ConnectNotify(f func() error, notify func(err err
 
 //Reconnect reconnects the service with the supplied func in Connect
 func (r *ReconnectableService) Reconnect() error {
+	r.mu.Lock()
 	r.connected = false
+	r.mu.Unlock()
 	return r.ConnectNotify(r.connectFunc, r.notifyFunc)
 }
 
 //IsConnected returns whether the service is connected
 func (r *ReconnectableService) IsConnected() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return r.connected
 }
 
 //Name returns the service name
 func (r *ReconnectableService) Name() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return r.name
 }
 
 //Stop stops the service reconnection
 func (r *ReconnectableService) Stop() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	Log().Infof("Stopping %s reconnection", r.Name())
 	r.stopped = true
 }
