@@ -17,7 +17,7 @@ func initLogging(c *ApplicationInitConfig) (*log.Entry, error) {
 	loggingEnv := configValue.FieldByName("LoggingHost").String()
 	version := getVersion(c)
 
-	if version != "development" {
+	if version == "development" {
 		log.SetFormatter(c.DevFormatter)
 	} else {
 		log.SetFormatter(c.ProdFormatter)
