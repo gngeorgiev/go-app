@@ -40,13 +40,16 @@ type Application struct {
 	servicesMutex         sync.Mutex
 	stoppedMutex          sync.Mutex
 	stopped               bool
+	gracefulTimeout       time.Duration
 }
 
 //ApplicationInitConfig is the default application config
 type ApplicationInitConfig struct {
-	Name, Version        string
-	DefaultLoggingFields log.Fields
-	Config               interface{}
+	Name, Version               string
+	DefaultLoggingFields        log.Fields
+	DevFormatter, ProdFormatter log.Formatter
+	Config                      interface{}
+	GracefulTimeout             time.Duration
 }
 
 var app *Application
@@ -83,6 +86,16 @@ func initApp(appConfig *ApplicationInitConfig) error {
 		return ErrAppInitialized
 	}
 
+	if appConfig.DevFormatter == nil {
+		appConfig.DevFormatter = &log.TextFormatter{}
+	}
+	if appConfig.ProdFormatter == nil {
+		appConfig.ProdFormatter = &log.JSONFormatter{}
+	}
+	if appConfig.GracefulTimeout == 0 {
+		appConfig.GracefulTimeout = 30 * time.Second
+	}
+
 	version := getVersion(appConfig)
 
 	internalConfig, err := initConfig(appConfig)
@@ -110,6 +123,7 @@ func initApp(appConfig *ApplicationInitConfig) error {
 		services:              make([]GracefulService, 0),
 		stoppedMutex:          sync.Mutex{},
 		stopped:               false,
+		gracefulTimeout:       appConfig.GracefulTimeout,
 	}
 
 	return nil
@@ -128,22 +142,6 @@ func Version() string {
 //Config returns the full config of the application
 func Config() interface{} {
 	return app.config
-}
-
-//Log returns a LogEntry with standart fields specified during init
-func Log() *log.Entry {
-	var entry *log.Entry
-
-	if app != nil {
-		entry = app.log
-	} else {
-		entry = log.NewEntry(log.StandardLogger())
-	}
-
-	return &log.Entry{
-		Logger: entry.Logger,
-		Data:   entry.Data,
-	}
 }
 
 //Stopped returns whether the application is in a stopped state
@@ -308,13 +306,11 @@ func handleGracefulShutdown() {
 					complete <- struct{}{}
 				}(s, complete)
 
-				t := time.NewTimer(gracefulTimeout)
-
 				select {
 				case <-complete:
 					app.log.Infof("Stopped service %s", s)
-				case <-t.C:
-					app.log.Infof("A service did not shutdown gracefully in the %d timeout, skiping", gracefulTimeout)
+				case <-time.After(app.gracefulTimeout):
+					app.log.Infof("The service: %s did not shutdown gracefully in the %d timeout, skiping", s, gracefulTimeout)
 				}
 			}(s)
 		}

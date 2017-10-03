@@ -1,6 +1,8 @@
 package app
 
 import (
+	"bytes"
+	"fmt"
 	"io"
 	"reflect"
 
@@ -15,7 +17,12 @@ func initLogging(c *ApplicationInitConfig) (*log.Entry, error) {
 	loggingEnv := configValue.FieldByName("LoggingHost").String()
 	version := getVersion(c)
 
-	log.SetFormatter(&log.JSONFormatter{})
+	if version != "development" {
+		log.SetFormatter(c.DevFormatter)
+	} else {
+		log.SetFormatter(c.ProdFormatter)
+	}
+
 	hostname, _ := os.Hostname()
 	if hostname == "" {
 		hostname = loggingEnv
@@ -58,4 +65,43 @@ func FatalLogWriter() *io.PipeWriter {
 //ErrorLogWriter is a log writer with error log level
 func ErrorLogWriter() *io.PipeWriter {
 	return GetLogWriter(log.ErrorLevel)
+}
+
+type logEntry struct {
+	*log.Entry
+}
+
+func (l *logEntry) ErrorWrap(err error, message string) {
+	l.Error(fmt.Sprintf("%s: %s", err.Error(), message))
+}
+
+//Log returns a LogEntry with standart fields specified during init
+func Log(context ...interface{}) *logEntry {
+	var entry *log.Entry
+
+	if app != nil {
+		entry = app.log
+	} else {
+		entry = log.NewEntry(log.StandardLogger())
+	}
+
+	if len(context) > 0 {
+		var b bytes.Buffer
+		for i, a := range context {
+			if i == 0 {
+				b.WriteString(fmt.Sprintf("%s", a))
+			} else {
+				b.WriteString(fmt.Sprintf("; %s", a))
+			}
+		}
+
+		entry = entry.WithField("context", b.String())
+	}
+
+	return &logEntry{
+		&log.Entry{
+			Logger: entry.Logger,
+			Data:   entry.Data,
+		}
+	}
 }

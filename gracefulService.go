@@ -5,7 +5,7 @@ import (
 )
 
 var (
-	gracefulTimeout = time.Minute * 4
+	gracefulTimeout = time.Minute * 1
 )
 
 //GracefulService knows how to shut itself down, synchronously
