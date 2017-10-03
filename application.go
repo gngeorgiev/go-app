@@ -7,10 +7,6 @@ import (
 	"syscall"
 	"time"
 
-	"reflect"
-
-	"fmt"
-
 	log "github.com/Sirupsen/logrus"
 	"github.com/go-errors/errors"
 )
@@ -172,80 +168,6 @@ func ShutdownSignalReceived(shutdown chan chan error, identifier string) {
 	}
 
 	app.shutdownChannels = append(app.shutdownChannels, adhocShutdown)
-}
-
-//LogObject adds the fields of an object to the log entry, e.g.
-//{SomeField: "FieldValue", NestedField: { NestedFieldValue: "NestedFieldValue" }} logs this ->
-//{component: "comp-name", time: "2016-11-30T10:57:12+02:00", level:"info", SomeField: "FieldValue", NestedField.NestedFieldValue: "NestedFieldValue"}
-func LogObject(o interface{}) *log.Entry {
-	return LogObjectWithEntry(o, Log())
-}
-
-//LogObjectWithEntry for performance reasons this will get the fields of the object only when the logging level is Debug
-//reflection comes with a price and when processing millions of messages things get slow
-//if you are absolutely positive that you need to log something use MustLogObjectWithEntry
-func LogObjectWithEntry(o interface{}, entry *log.Entry) *log.Entry {
-	if entry.Level >= log.DebugLevel {
-		return MustLogObjectWithEntry(o, entry)
-	}
-
-	return entry
-}
-
-//MustLogObjectWithEntry logs and object and it's values regardless of the log level
-func MustLogObjectWithEntry(o interface{}, entry *log.Entry) *log.Entry {
-	v := reflect.Indirect(reflect.ValueOf(o))
-	if v.Kind() != reflect.Struct {
-		return entry
-	}
-
-	paths, values := iterateObjectFields(v, "")
-	for i := range paths {
-		path := paths[i]
-		value := values[i]
-		entry = entry.WithField(path, value)
-	}
-
-	return entry
-}
-
-func getStructFieldValue(v reflect.Value, path string) ([]string, []interface{}) {
-	paths := make([]string, 0)
-	values := make([]interface{}, 0)
-	if v.Kind() == reflect.Struct {
-		innerPaths, innerValues := iterateObjectFields(v, path)
-		paths = append(paths, innerPaths...)
-		values = append(values, innerValues...)
-		return paths, values
-	} else if !v.CanInterface() {
-		return []string{}, []interface{}{}
-	}
-
-	paths = append(paths, path)
-	values = append(values, v.Interface())
-
-	return paths, values
-}
-
-func iterateObjectFields(v reflect.Value, path string) ([]string, []interface{}) {
-	fields := v.NumField()
-	paths := make([]string, 0)
-	values := make([]interface{}, 0)
-	for i := 0; i < fields; i++ {
-		fieldName := v.Type().Field(i).Name
-		var fieldPath string
-		if path == "" {
-			fieldPath = fieldName
-		} else {
-			fieldPath += fmt.Sprintf("%s.%s", path, fieldName)
-		}
-
-		innerPaths, innerValues := getStructFieldValue(v.Field(i), fieldPath)
-		paths = append(paths, innerPaths...)
-		values = append(values, innerValues...)
-	}
-
-	return paths, values
 }
 
 func (g *gracefulChannelShutdown) String() string {
