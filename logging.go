@@ -102,6 +102,6 @@ func Log(context ...interface{}) *logEntry {
 		&log.Entry{
 			Logger: entry.Logger,
 			Data:   entry.Data,
-		}
+		},
 	}
 }
