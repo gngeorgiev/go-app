@@ -14,9 +14,7 @@ import (
 func initLogging(c *ApplicationInitConfig) (*log.Entry, error) {
 	configValue := reflect.Indirect(reflect.ValueOf(c.Config))
 
-	loggingEnv := configValue.FieldByName("LoggingHost").String()
 	version := getVersion(c)
-
 	if version == "development" {
 		log.SetFormatter(c.DevFormatter)
 	} else {
@@ -25,13 +23,12 @@ func initLogging(c *ApplicationInitConfig) (*log.Entry, error) {
 
 	hostname, _ := os.Hostname()
 	if hostname == "" {
-		hostname = loggingEnv
+		hostname = "unknown"
 	}
 
 	logEntry := log.WithFields(c.DefaultLoggingFields).WithFields(log.Fields{
 		"component": c.Name,
 		"version":   version,
-		"host":      loggingEnv,
 		"hostname":  hostname,
 	})
 
@@ -42,6 +39,7 @@ func initLogging(c *ApplicationInitConfig) (*log.Entry, error) {
 	}
 
 	logEntry.Logger.Level = lvl
+
 	for _, hook := range c.LogHooks {
 		log.AddHook(hook)
 	}
