@@ -7,8 +7,8 @@ import (
 	"syscall"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/go-errors/errors"
+	log "github.com/sirupsen/logrus"
 )
 
 var (

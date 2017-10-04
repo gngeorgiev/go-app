@@ -8,7 +8,7 @@ import (
 
 	"os"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 )
 
 func initLogging(c *ApplicationInitConfig) (*log.Entry, error) {

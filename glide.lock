@@ -7,7 +7,7 @@ imports:
   version: 8fa88b06e5974e97fbf9899a7f86a344bfd1f105
 - name: github.com/kelseyhightower/envconfig
   version: 9aca109c9aec4633fced9717c4a09ecab3d33111
-- name: github.com/Sirupsen/logrus
+- name: github.com/sirupsen/logrus
   version: a437dfd2463eaedbec3dfe443e477d3b0a810b3f
 - name: github.com/streadway/amqp
   version: 280af9972814b39f3b45c9546a63535a32a1f44d

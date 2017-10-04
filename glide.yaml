@@ -1,6 +1,6 @@
 package: github.com/gngeorgiev/go-app
 import:
-- package: github.com/Sirupsen/logrus
+- package: github.com/sirupsen/logrus
 - package: github.com/kelseyhightower/envconfig
 - package: github.com/cenkalti/backoff
   version: ^1.0.0
