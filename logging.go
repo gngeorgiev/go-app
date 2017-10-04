@@ -42,6 +42,10 @@ func initLogging(c *ApplicationInitConfig) (*log.Entry, error) {
 	}
 
 	logEntry.Logger.Level = lvl
+	for _, hook := range c.LogHooks {
+		log.AddHook(hook)
+	}
+
 	return logEntry, nil
 }
 
@@ -91,7 +95,7 @@ func Log(context ...interface{}) *logEntry {
 			if i == 0 {
 				b.WriteString(fmt.Sprintf("%s", a))
 			} else {
-				b.WriteString(fmt.Sprintf("; %s", a))
+				b.WriteString(fmt.Sprintf(": %s", a))
 			}
 		}
 
