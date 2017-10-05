@@ -46,7 +46,7 @@ type ApplicationInitConfig struct {
 	DevFormatter, ProdFormatter log.Formatter
 	Config                      interface{}
 	GracefulTimeout             time.Duration
-	LogHooks                    []log.Hook
+	LogHooks                    []func() log.Hook
 }
 
 var app *Application
@@ -93,7 +93,7 @@ func initApp(appConfig *ApplicationInitConfig) error {
 		appConfig.GracefulTimeout = 30 * time.Second
 	}
 	if appConfig.LogHooks == nil {
-		appConfig.LogHooks = make([]log.Hook, 0)
+		appConfig.LogHooks = make([]func() log.Hook, 0)
 	}
 
 	version := getVersion(appConfig)

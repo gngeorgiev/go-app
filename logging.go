@@ -41,7 +41,7 @@ func initLogging(c *ApplicationInitConfig) (*log.Entry, error) {
 	logEntry.Logger.Level = lvl
 
 	for _, hook := range c.LogHooks {
-		log.AddHook(hook)
+		log.AddHook(hook())
 	}
 
 	return logEntry, nil
