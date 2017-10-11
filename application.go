@@ -2,41 +2,43 @@ package app
 
 import (
 	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/go-errors/errors"
 	log "github.com/sirupsen/logrus"
 )
 
+type ShutdownPriority int
+
 var (
 	//ErrAppInitialized is returned when the application has already been initialized
-	ErrAppInitialized = errors.New("Application already initialized")
+	ErrAppInitialized      = errors.New("Application already initialized")
+	ShutdownPriorityLast   = ShutdownPriority(0)
+	ShutdownPriorityNormal = ShutdownPriority(1)
+	ShutdownPriorityFirst  = ShutdownPriority(2)
+
+	shutdownPriorityMap map[ShutdownPriority]string = map[ShutdownPriority]string{
+		ShutdownPriorityFirst:  "First",
+		ShutdownPriorityLast:   "Last",
+		ShutdownPriorityNormal: "Normal",
+	}
 )
 
-type gracefulChannelShutdown struct {
-	name string
-	ch   chan chan error
-}
-
 type Application struct {
-	name, version         string
-	defaultLoggingFields  log.Fields
-	config                interface{}
-	initConfig            *ApplicationInitConfig
-	internalConfig        *BaseAppConfig
-	logMutex              sync.Mutex
-	log                   *log.Entry
-	shutdownChannelsMutex sync.Mutex
-	shutdownChannels      []*gracefulChannelShutdown
-	shutdown              chan os.Signal
-	services              []GracefulService
-	servicesMutex         sync.Mutex
-	stoppedMutex          sync.Mutex
-	stopped               bool
-	gracefulTimeout       time.Duration
+	name, version        string
+	defaultLoggingFields log.Fields
+	config               interface{}
+	initConfig           *ApplicationInitConfig
+	internalConfig       *BaseAppConfig
+	logMutex             sync.Mutex
+	log                  *log.Entry
+	shutdown             chan os.Signal
+	services             []*gracefulServiceWrapper
+	servicesMutex        sync.Mutex
+	stoppedMutex         sync.Mutex
+	stopped              bool
+	gracefulTimeout      time.Duration
 }
 
 //ApplicationInitConfig is the default application config
@@ -117,13 +119,11 @@ func initApp(appConfig *ApplicationInitConfig) error {
 		internalConfig:       internalConfig,
 		logMutex:             sync.Mutex{},
 		log:                  logEntry,
-		shutdownChannelsMutex: sync.Mutex{},
-		shutdownChannels:      make([]*gracefulChannelShutdown, 0),
-		shutdown:              make(chan os.Signal),
-		services:              make([]GracefulService, 0),
-		stoppedMutex:          sync.Mutex{},
-		stopped:               false,
-		gracefulTimeout:       appConfig.GracefulTimeout,
+		shutdown:             make(chan os.Signal),
+		services:             make([]*gracefulServiceWrapper, 0),
+		stoppedMutex:         sync.Mutex{},
+		stopped:              false,
+		gracefulTimeout:      appConfig.GracefulTimeout,
 	}
 
 	return nil
@@ -160,20 +160,6 @@ func WaitShutdown() <-chan os.Signal {
 	return app.shutdown
 }
 
-//ShutdownSignalReceived is used to get notified when an os terminate signal is received
-//by the application to clean up resources before exiting
-//each channel call will block with a timeout
-func ShutdownSignalReceived(shutdown chan chan error, identifier string) {
-	app.shutdownChannelsMutex.Lock()
-	defer app.shutdownChannelsMutex.Unlock()
-	adhocShutdown := &gracefulChannelShutdown{
-		name: identifier, //TODO: name,
-		ch:   shutdown,
-	}
-
-	app.shutdownChannels = append(app.shutdownChannels, adhocShutdown)
-}
-
 func (g *gracefulChannelShutdown) String() string {
 	return g.name
 }
@@ -182,67 +168,4 @@ func (g *gracefulChannelShutdown) Shutdown() error {
 	err := make(chan error)
 	g.ch <- err
 	return <-err
-}
-
-func handleGracefulShutdown() {
-	shutdownCh := make(chan os.Signal)
-	signal.Notify(shutdownCh, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		shutdownSignal := <-shutdownCh
-		app.stoppedMutex.Lock()
-		app.stopped = true
-		app.stoppedMutex.Unlock()
-		Log().Infof("Received graceful shutdown message %s", shutdownSignal)
-
-		app.servicesMutex.Lock()
-		services := app.services[:]
-		app.servicesMutex.Unlock()
-
-		app.shutdownChannelsMutex.Lock()
-		shutdownChannels := app.shutdownChannels[:]
-		app.shutdownChannelsMutex.Unlock()
-
-		for _, adhocService := range shutdownChannels {
-			services = append(services, adhocService)
-		}
-
-		if len(services) == 0 {
-			Log().Infof("No services to stop, exiting.")
-			app.shutdown <- shutdownSignal
-			return
-		}
-
-		Log().Infof("Stopping a total of %d services: %s", len(services), services)
-
-		var wg sync.WaitGroup
-		for _, s := range services {
-			wg.Add(1)
-			go func(s GracefulService) {
-				app.log.Infof("Stopping service %s", s)
-				defer wg.Done()
-
-				complete := make(chan struct{})
-				go func(s GracefulService, complete chan struct{}) {
-					err := s.Shutdown()
-					if err != nil {
-						app.log.Errorf("Error during graceful shutdown %s", err)
-					}
-
-					complete <- struct{}{}
-				}(s, complete)
-
-				select {
-				case <-complete:
-					app.log.Infof("Stopped service %s", s)
-				case <-time.After(app.gracefulTimeout):
-					app.log.Infof("The service: %s did not shutdown gracefully in the %d timeout, skiping", s, gracefulTimeout)
-				}
-			}(s)
-		}
-
-		wg.Wait()
-
-		app.shutdown <- shutdownSignal
-	}()
 }
