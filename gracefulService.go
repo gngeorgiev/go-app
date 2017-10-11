@@ -103,7 +103,7 @@ func handleGracefulShutdown() {
 			ShutdownPriorityLast,
 		}
 
-		prioritizedServices := make([][]*gracefulServiceWrapper, 0)
+		prioritizedServices := make([][]*gracefulServiceWrapper, len(priorities))
 		for i, p := range priorities {
 			if prioritizedServices[i] == nil {
 				prioritizedServices[i] = make([]*gracefulServiceWrapper, 0)
